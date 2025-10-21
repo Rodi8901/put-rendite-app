@@ -1,7 +1,7 @@
 # ---
 # 💰 Put-Rendite-Rechner – Version 7.1 (Cloud-ready)
 # ---
-!pip install yfinance pandas numpy matplotlib tabulate streamlit > /dev/null
+
 
 import streamlit as st
 import yfinance as yf
@@ -98,3 +98,4 @@ if st.button("Berechnen"):
     ax.grid(alpha=0.3)
     ax.legend()
     st.pyplot(fig)
+
