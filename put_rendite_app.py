@@ -17,8 +17,8 @@ def put_delta(S, K, T, r, sigma):
 
 # === SEITENTITEL ===
 st.set_page_config(page_title="Put-Rendite-Rechner", layout="wide")
-st.title("💰 Put-Rendite-Rechner – Version 7.5 (mit ATM ±1σ)")
-st.caption("Berechnet Rendite, Delta, Sicherheitsabstand und erwartete Bewegung (±1σ) basierend auf Yahoo Finance-Daten.")
+st.title("💰 Put-Rendite-Rechner – Version 7.5")
+st.caption("Berechnet Rendite, Delta, Sicherheitsabstand und ±1σ-Bereich basierend auf Yahoo Finance-Daten.")
 
 # === EINGABEMASKE ===
 ticker = st.text_input("Ticker (z. B. AAPL, INTC, NVDA):", "INTC").upper()
@@ -39,42 +39,39 @@ if st.button("📊 Renditen berechnen"):
         today = datetime.now()
         rows = []
 
-        # === ATM-IV & ±1σ-Berechnung ===
-        first_chain = stock.option_chain(opt_dates[0])
-        puts_first = first_chain.puts
-        puts_first["diff"] = abs(puts_first["strike"] - current_price)
-        atm_row = puts_first.loc[puts_first["diff"].idxmin()]
-        atm_iv = float(atm_row["impliedVolatility"])
-        exp_date = datetime.strptime(opt_dates[0], "%Y-%m-%d")
-        T = (exp_date - today).days / 365
-        move = current_price * atm_iv * sqrt(T)
-        lower = current_price - move
-        upper = current_price + move
+        atm_iv = None  # ATM-IV wird später für σ-Bereich angezeigt
 
-        st.subheader(f"📋 Ergebnisse für {ticker} (Kurs: {round(current_price, 2)} $)")
-        st.markdown(
-            f"**At-the-Money Volatilität (ATM IV):** {atm_iv*100:.2f}%  \n"
-            f"**Erwartete Standardabweichung (±1σ):** ±{move:.2f} $ → "
-            f"({lower:.2f} $ – {upper:.2f} $ bis Verfall)"
-        )
-
-        # === OPTIONSDATEN EINLESEN ===
         for exp in opt_dates:
             chain = stock.option_chain(exp)
             puts = chain.puts
-            iv_col = "impliedVolatility" if "impliedVolatility" in puts.columns else None
+            iv_col = "impliedVolatility"
+
+            # ATM-IV berechnen (Strike am nächsten am Kurs)
+            if atm_iv is None:
+                puts["diff"] = abs(puts["strike"] - current_price)
+                closest_strike = puts.loc[puts["diff"].idxmin()]
+                atm_iv = closest_strike["impliedVolatility"]
+                expiration = datetime.strptime(exp, "%Y-%m-%d")
+                days_to_exp = (expiration - today).days
+                T = days_to_exp / 365
+                sigma_abs = current_price * atm_iv * sqrt(T)
+                st.markdown(f"### 📈 At-the-Money-Volatilität (ATM IV): {atm_iv*100:.2f} %")
+                st.markdown(f"**Erwartete Standardabweichung (±1σ): ±{sigma_abs:.2f} $ → ({current_price - sigma_abs:.2f} $ – {current_price + sigma_abs:.2f} $ bis Verfall)**")
 
             for strike in strikes:
                 row = puts[puts["strike"] == strike]
                 if not row.empty:
                     bid = float(row["bid"].iloc[0])
-                    iv = float(row[iv_col].iloc[0]) if iv_col else np.nan
+                    iv = float(row["impliedVolatility"].iloc[0])
                     expiration = datetime.strptime(exp, "%Y-%m-%d")
                     days = (expiration - today).days
                     T = days / 365
                     sigma = iv if not np.isnan(iv) else 0.3
 
+                    # Delta berechnen
                     delta = put_delta(current_price, strike, T, risk_free_rate, sigma)
+
+                    # Rendite
                     total_premium = bid * 100 * options_per_trade
                     total_fee = fee_per_option * options_per_trade
                     net_premium = total_premium - total_fee
@@ -86,17 +83,20 @@ if st.button("📊 Renditen berechnen"):
                     else:
                         roi_trade, annualized_roi = np.nan, np.nan
 
+                    # Sicherheitsmarge (Abstand Strike-Kurs)
                     safety = ((strike - current_price) / current_price) * 100
+
+                    # ±1σ-Bereich
                     move = current_price * sigma * sqrt(T)
                     lower = current_price - move
                     upper = current_price + move
 
                     rows.append({
-                        "Strike": strike,
                         "Laufzeit (Tage)": days,
+                        "Strike": strike,
                         "Bid ($)": round(bid, 2),
                         "IV (%)": round(sigma * 100, 2),
-                        "Delta": round(delta, 3),
+                        "Delta": round(delta, 2),
                         "Sicherheit (%)": round(safety, 2),
                         "Netto Prämie ($)": round(net_premium, 2),
                         "Kapital ($)": int(capital),
@@ -111,16 +111,31 @@ if st.button("📊 Renditen berechnen"):
             df = df[(df["Laufzeit (Tage)"] >= 25) & (df["Laufzeit (Tage)"] <= 60)]
 
         if df.empty:
-            st.warning("⚠️ Keine passenden Optionen mit 25–60 Tagen Laufzeit gefunden.")
+            st.warning("Keine passenden Optionen mit 25–60 Tagen Laufzeit gefunden.")
         else:
+            # Nach Laufzeit sortieren
+            df = df.sort_values(by=["Laufzeit (Tage)", "Strike"])
+
+            # Fett-Markierung für Jahresrendite
             def highlight_roi(row):
                 style = [''] * len(row)
                 if "Rendite p.a. (%)" in df.columns:
-                    style[df.columns.get_loc("Rendite p.a. (%)")] = "font-weight: bold; color:#006400"
+                    style[df.columns.get_loc("Rendite p.a. (%)")] = "font-weight: bold; color: #006400"
                 return style
 
-            st.dataframe(df.style.apply(highlight_roi, axis=1))
+            # Trenner zwischen Laufzeiten
+            df["Laufzeit-Trenner"] = df["Laufzeit (Tage)"].astype(str) + " Tage"
 
+            st.subheader(f"📋 Ergebnisse für {ticker} (Kurs: {current_price:.2f} $)")
+            st.dataframe(
+                df.style
+                .apply(highlight_roi, axis=1)
+                .set_table_styles(
+                    [{"selector": "tbody tr", "props": [("border-top", "2px solid black")]}]
+                )
+            )
+
+            # Diagramm
             plt.figure(figsize=(10, 6))
             for strike in strikes:
                 subset = df[df["Strike"] == strike]
@@ -134,5 +149,6 @@ if st.button("📊 Renditen berechnen"):
             plt.grid(True, linestyle="--", alpha=0.5)
             plt.legend()
             st.pyplot(plt)
+
     except Exception as e:
         st.error(f"❌ Fehler: {e}")
