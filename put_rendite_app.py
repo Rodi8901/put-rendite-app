@@ -17,10 +17,10 @@ def put_delta(S, K, T, r, sigma):
 
 # === SEITENTITEL ===
 st.set_page_config(page_title="Put-Rendite-Rechner", layout="wide")
-st.title("💰 Put-Rendite-Rechner – Version 7.5")
+st.title("💰 Put-Rendite-Rechner – Version 7.6")
 st.caption("Berechnet Rendite, Delta, Sicherheitsabstand und ±1σ-Bereich basierend auf Yahoo Finance-Daten.")
 
-# === EINGABEMASKE ===
+# === EINGABEN ===
 ticker = st.text_input("Ticker (z. B. AAPL, INTC, NVDA):", "INTC").upper()
 strikes_input = st.text_input("Strikes (Komma-getrennt):", "31, 32, 33")
 show_all = st.checkbox("Alle Laufzeiten anzeigen (nicht nur 25–60 Tage)", False)
@@ -39,22 +39,22 @@ if st.button("📊 Renditen berechnen"):
         today = datetime.now()
         rows = []
 
-        atm_iv = None  # ATM-IV wird später für σ-Bereich angezeigt
+        atm_iv = None  # ATM-IV für σ-Bereich
 
         for exp in opt_dates:
             chain = stock.option_chain(exp)
             puts = chain.puts
-            iv_col = "impliedVolatility"
 
-            # ATM-IV berechnen (Strike am nächsten am Kurs)
-            if atm_iv is None:
+            # ATM-IV (Strike am nächsten am Kurs)
+            if atm_iv is None and not puts.empty:
                 puts["diff"] = abs(puts["strike"] - current_price)
-                closest_strike = puts.loc[puts["diff"].idxmin()]
-                atm_iv = closest_strike["impliedVolatility"]
+                closest = puts.loc[puts["diff"].idxmin()]
+                atm_iv = closest["impliedVolatility"]
                 expiration = datetime.strptime(exp, "%Y-%m-%d")
                 days_to_exp = (expiration - today).days
                 T = days_to_exp / 365
                 sigma_abs = current_price * atm_iv * sqrt(T)
+
                 st.markdown(f"### 📈 At-the-Money-Volatilität (ATM IV): {atm_iv*100:.2f} %")
                 st.markdown(f"**Erwartete Standardabweichung (±1σ): ±{sigma_abs:.2f} $ → ({current_price - sigma_abs:.2f} $ – {current_price + sigma_abs:.2f} $ bis Verfall)**")
 
@@ -68,7 +68,7 @@ if st.button("📊 Renditen berechnen"):
                     T = days / 365
                     sigma = iv if not np.isnan(iv) else 0.3
 
-                    # Delta berechnen
+                    # Delta
                     delta = put_delta(current_price, strike, T, risk_free_rate, sigma)
 
                     # Rendite
@@ -83,10 +83,10 @@ if st.button("📊 Renditen berechnen"):
                     else:
                         roi_trade, annualized_roi = np.nan, np.nan
 
-                    # Sicherheitsmarge (Abstand Strike-Kurs)
+                    # Sicherheit
                     safety = ((strike - current_price) / current_price) * 100
 
-                    # ±1σ-Bereich
+                    # ±1σ
                     move = current_price * sigma * sqrt(T)
                     lower = current_price - move
                     upper = current_price + move
@@ -94,16 +94,16 @@ if st.button("📊 Renditen berechnen"):
                     rows.append({
                         "Laufzeit (Tage)": days,
                         "Strike": strike,
-                        "Bid ($)": round(bid, 2),
-                        "IV (%)": round(sigma * 100, 2),
-                        "Delta": round(delta, 2),
-                        "Sicherheit (%)": round(safety, 2),
-                        "Netto Prämie ($)": round(net_premium, 2),
-                        "Kapital ($)": int(capital),
-                        "Rendite Trade (%)": round(roi_trade * 100, 2),
-                        "Rendite p.a. (%)": round(annualized_roi * 100, 2),
-                        "±1σ Untergrenze ($)": round(lower, 2),
-                        "±1σ Obergrenze ($)": round(upper, 2)
+                        "Bid ($)": bid,
+                        "IV (%)": sigma * 100,
+                        "Delta": delta,
+                        "Sicherheit (%)": safety,
+                        "Netto Prämie ($)": net_premium,
+                        "Kapital ($)": capital,
+                        "Rendite Trade (%)": roi_trade * 100,
+                        "Rendite p.a. (%)": annualized_roi * 100,
+                        "±1σ Untergrenze ($)": lower,
+                        "±1σ Obergrenze ($)": upper
                     })
 
         df = pd.DataFrame(rows)
@@ -113,10 +113,13 @@ if st.button("📊 Renditen berechnen"):
         if df.empty:
             st.warning("Keine passenden Optionen mit 25–60 Tagen Laufzeit gefunden.")
         else:
-            # Nach Laufzeit sortieren
             df = df.sort_values(by=["Laufzeit (Tage)", "Strike"])
 
-            # Fett-Markierung für Jahresrendite
+            # Rundung aller Zahlen auf 2 Nachkommastellen
+            float_cols = df.select_dtypes(include=["float64"]).columns
+            df[float_cols] = df[float_cols].round(2)
+
+            # Style-Definition: Rendite fett + grün
             def highlight_roi(row):
                 style = [''] * len(row)
                 if "Rendite p.a. (%)" in df.columns:
@@ -124,16 +127,18 @@ if st.button("📊 Renditen berechnen"):
                 return style
 
             # Trenner zwischen Laufzeiten
-            df["Laufzeit-Trenner"] = df["Laufzeit (Tage)"].astype(str) + " Tage"
-
-            st.subheader(f"📋 Ergebnisse für {ticker} (Kurs: {current_price:.2f} $)")
-            st.dataframe(
+            styled_df = (
                 df.style
                 .apply(highlight_roi, axis=1)
-                .set_table_styles(
-                    [{"selector": "tbody tr", "props": [("border-top", "2px solid black")]}]
-                )
+                .set_table_styles([
+                    {"selector": "thead th", "props": [("font-weight", "bold"), ("border-bottom", "2px solid black")]},
+                    {"selector": "tbody tr", "props": [("border-top", "1px solid #ccc")]},
+                ])
+                .format(precision=2)
             )
+
+            st.subheader(f"📋 Ergebnisse für {ticker} (Kurs: {current_price:.2f} $)")
+            st.dataframe(styled_df, use_container_width=True)
 
             # Diagramm
             plt.figure(figsize=(10, 6))
