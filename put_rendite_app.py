@@ -17,7 +17,7 @@ def put_delta(S, K, T, r, sigma):
 
 # === SEITENTITEL ===
 st.set_page_config(page_title="Put-Rendite-Rechner", layout="wide")
-st.title("💰 Put-Rendite-Rechner – Version 7.6")
+st.title("💰 Put-Rendite-Rechner – Version 7.7")
 st.caption("Berechnet Rendite, Delta, Sicherheitsabstand und ±1σ-Bereich basierend auf Yahoo Finance-Daten.")
 
 # === EINGABEN ===
@@ -114,31 +114,33 @@ if st.button("📊 Renditen berechnen"):
             st.warning("Keine passenden Optionen mit 25–60 Tagen Laufzeit gefunden.")
         else:
             df = df.sort_values(by=["Laufzeit (Tage)", "Strike"])
-
-            # Rundung aller Zahlen auf 2 Nachkommastellen
             float_cols = df.select_dtypes(include=["float64"]).columns
             df[float_cols] = df[float_cols].round(2)
 
-            # Style-Definition: Rendite fett + grün
+            # Gruppierung nach Laufzeit für Leerzeilen
+            grouped = []
+            for days, group in df.groupby("Laufzeit (Tage)"):
+                grouped.append(group)
+                # Leerzeile als Trenner hinzufügen
+                grouped.append(pd.DataFrame({col: [np.nan] for col in df.columns}))
+
+            final_df = pd.concat(grouped, ignore_index=True)
+
+            # Style: Jahresrendite fett & grün
             def highlight_roi(row):
                 style = [''] * len(row)
-                if "Rendite p.a. (%)" in df.columns:
-                    style[df.columns.get_loc("Rendite p.a. (%)")] = "font-weight: bold; color: #006400"
+                if "Rendite p.a. (%)" in final_df.columns:
+                    style[final_df.columns.get_loc("Rendite p.a. (%)")] = "font-weight: bold; color: #006400"
                 return style
 
-            # Trenner zwischen Laufzeiten
-            styled_df = (
-                df.style
-                .apply(highlight_roi, axis=1)
-                .set_table_styles([
-                    {"selector": "thead th", "props": [("font-weight", "bold"), ("border-bottom", "2px solid black")]},
-                    {"selector": "tbody tr", "props": [("border-top", "1px solid #ccc")]},
-                ])
-                .format(precision=2)
-            )
-
             st.subheader(f"📋 Ergebnisse für {ticker} (Kurs: {current_price:.2f} $)")
-            st.dataframe(styled_df, use_container_width=True)
+            st.dataframe(
+                final_df.style
+                .apply(highlight_roi, axis=1)
+                .set_table_styles([{"selector": "thead th", "props": [("font-weight", "bold")]}])
+                .format(precision=2),
+                use_container_width=True
+            )
 
             # Diagramm
             plt.figure(figsize=(10, 6))
@@ -147,7 +149,6 @@ if st.button("📊 Renditen berechnen"):
                 if not subset.empty:
                     plt.plot(subset["Laufzeit (Tage)"], subset["Rendite p.a. (%)"],
                              marker="o", label=f"Strike {strike}$")
-
             plt.title(f"Put-Rendite p.a. für {ticker}")
             plt.xlabel("Laufzeit (Tage)")
             plt.ylabel("Rendite p.a. (%)")
