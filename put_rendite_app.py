@@ -23,8 +23,8 @@ ticker = st.text_input("Ticker (z. B. AAPL, INTC, NVDA):", "INTC").upper()
 strikes_input = st.text_input("Strikes (Komma-getrennt):", "31, 32, 33")
 show_all = st.checkbox("Alle Laufzeiten anzeigen (nicht nur 25–60 Tage)", False)
 fee_per_option = st.number_input("Gebühr pro Option ($):", min_value=0.0, max_value=50.0, value=3.5, step=0.5)
-options_per_trade = st.number_input("Anzahl gehandelter Optionen:", 1, 1, 50)
-risk_free_rate = st.number_input("Risikofreier Zins (z. B. 0.05 für 5 %):", 0.05, 0.0, 0.2)
+options_per_trade = st.number_input("Anzahl gehandelter Optionen:", min_value=1, max_value=50, value=1, step=1)
+risk_free_rate = st.number_input("Risikofreier Zins (z. B. 0.05 für 5 %):", min_value=0.0, max_value=0.2, value=0.05, step=0.01)
 
 if st.button("📊 Renditen berechnen"):
     try:
@@ -119,4 +119,5 @@ if st.button("📊 Renditen berechnen"):
             st.pyplot(plt)
     except Exception as e:
         st.error(f"Fehler: {e}")
+
 
