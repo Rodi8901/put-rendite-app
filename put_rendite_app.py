@@ -247,3 +247,60 @@ if st.button("📊 Renditen berechnen"):
 
     except Exception as e:
         st.error(f"❌ Unerwarteter Fehler: {e}")
+
+        # ... (bis hier bleibt dein Code unverändert, also Rows befüllen) ...
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            st.warning("Keine passenden Optionen gefunden (nach Filter/Validierung).")
+            st.stop()
+
+        if not show_all:
+            df = df[(df["Laufzeit (Tage)"] >= 25) & (df["Laufzeit (Tage)"] <= 60)]
+
+        if df.empty:
+            st.warning("Keine passenden Optionen mit 25–60 Tagen Laufzeit gefunden (nach Filter).")
+            st.stop()
+
+        # Sortieren & runden
+        df = df.sort_values(by=["Laufzeit (Tage)", "Strike"])
+        float_cols = df.select_dtypes(include=["float64"]).columns
+        df[float_cols] = df[float_cols].round(2)
+
+        # === Erzeuge Liste aus reinen dicts und füge Leerzeilen zwischen Laufzeiten ein ===
+        separated_rows = []
+        last_days = None
+        for _, row in df.iterrows():
+            row_dict = row.to_dict()                     # <-- wichtig: Series -> dict
+            if last_days is not None and row_dict["Laufzeit (Tage)"] != last_days:
+                separated_rows.append({col: "" for col in df.columns})  # Leerzeile als dict
+            separated_rows.append(row_dict)
+            last_days = row_dict["Laufzeit (Tage)"]
+
+        # Erstelle Anzeige-DataFrame mit gleicher Spaltenreihenfolge wie df
+        df_display = pd.DataFrame(separated_rows, columns=df.columns)
+
+        # Highlight Rendite p.a.
+        def highlight_roi(row):
+            style = [''] * len(row)
+            if "Rendite p.a. (%)" in df_display.columns:
+                style[df_display.columns.get_loc("Rendite p.a. (%)")] = "font-weight: bold; color: #006400"
+            return style
+
+        st.subheader(f"📋 Ergebnisse für {ticker} (Kurs: {current_price:.2f} $)")
+        st.dataframe(df_display.style.apply(highlight_roi, axis=1).format(precision=2), use_container_width=True)
+
+        # Chart (unverändert)
+        plt.figure(figsize=(10, 6))
+        for strike in strikes:
+            subset = df[df["Strike"] == strike]
+            if not subset.empty:
+                plt.plot(subset["Laufzeit (Tage)"], subset["Rendite p.a. (%)"], marker="o", label=f"Strike {strike}$")
+        plt.title(f"Put-Rendite p.a. für {ticker}")
+        plt.xlabel("Laufzeit (Tage)")
+        plt.ylabel("Rendite p.a. (%)")
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend()
+        st.pyplot(plt)
+
+
